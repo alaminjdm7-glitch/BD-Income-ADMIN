@@ -1,1 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Super Admin Panel</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #e6e6e6; margin: 0; padding: 20px; }
+        h2, h3 { color: #fff; border-bottom: 2px solid #0f3460; padding-bottom: 10px; }
+        
+        .container { display: flex; gap: 20px; flex-wrap: wrap; }
+        .section { background: #16213e; padding: 20px; border-radius: 12px; flex: 1; min-width: 350px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        
+        .req-card { 
+            background: #0f3460; padding: 15px; margin-bottom: 15px; border-radius: 8px; 
+            border-left: 5px solid #e94560; position: relative;
+        }
+        .req-card.withdraw { border-left-color: #f1c40f; }
+        
+        input, textarea { 
+            width: 100%; padding: 10px; background: #222; border: 1px solid #444; 
+            color: white; border-radius: 5px; box-sizing: border-box; margin-top: 5px;
+        }
+        
+        .btn { padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-top: 10px; color: white; }
+        .btn-green { background: #27ae60; }
+        .btn-red { background: #c0392b; }
+        .btn-blue { background: #2980b9; }
+        
+        .user-manager { background: #2c3e50; padding: 15px; border-radius: 8px; margin-top: 20px; }
+        .highlight { color: #f1c40f; font-weight: bold; font-size: 18px; }
+    </style>
+</head>
+<body>
 
+    <h2 style="text-align:center;"><i class="fas fa-shield-alt"></i> Super Admin Dashboard</h2>
+
+    <div class="container">
+        
+        <div class="section">
+            <h3><i class="fas fa-tasks"></i> Pending Tasks</h3>
+            <div id="task-list">Loading...</div>
+        </div>
+
+        <div class="section">
+            <h3><i class="fas fa-money-bill-wave"></i> Withdrawal Requests</h3>
+            <div id="withdraw-list">Loading...</div>
+        </div>
+
+        <div class="section">
+            <h3><i class="fas fa-users-cog"></i> User Management</h3>
+            <div class="user-manager">
+                <label>Search User by ID:</label>
+                <input type="number" id="search-uid" placeholder="Enter User ID (e.g. 123456)">
+                <button class="btn btn-blue" onclick="searchUser()">Search User</button>
+                
+                <div id="user-result" style="display:none; margin-top:15px; border-top:1px solid #555; padding-top:10px;">
+                    <p>Name: <span id="res-name">--</span></p>
+                    <p>Current Balance: <span id="res-bal" class="highlight">0.00</span> Tk</p>
+                    
+                    <label>Update Balance (Add/Subtract):</label>
+                    <input type="number" id="new-bal-amount" placeholder="Enter amount (e.g. 50 or -50)">
+                    <button class="btn btn-green" onclick="updateUserBalance()">Update Balance</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ✅ আপনার দেওয়া Firebase Config এখানেও বসিয়ে দেওয়া হয়েছে
+        const firebaseConfig = {
+          apiKey: "AIzaSyC3uf_5gEMK_JjsmFW01ofRE-ESaXhio9I",
+          authDomain: "taskbot-b6fe2.firebaseapp.com",
+          databaseURL: "https://taskbot-b6fe2-default-rtdb.firebaseio.com",
+          projectId: "taskbot-b6fe2",
+          storageBucket: "taskbot-b6fe2.firebasestorage.app",
+          messagingSenderId: "187560047900",
+          appId: "1:187560047900:web:f458a4f99e2e7d967f36d9",
+          measurementId: "G-9GPFKEQJ53"
+        };
+
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.database();
+
+        db.ref('admin_requests').on('value', (snapshot) => {
+            const tasksDiv = document.getElementById('task-list');
+            const withdrawDiv = document.getElementById('withdraw-list');
+            tasksDiv.innerHTML = '';
+            withdrawDiv.innerHTML = '';
+            
+            const data = snapshot.val();
+            if(!data) {
+                tasksDiv.innerHTML = 'No pending tasks';
+                withdrawDiv.innerHTML = 'No pending withdrawals';
+                return;
+            }
+
+            Object.values(data).forEach(req => {
+                if(req.status === 'Pending') {
+                    
+                    if(req.type === 'Task') {
+                        tasksDiv.innerHTML += `
+                        <div class="req-card">
+                            <p>👤 <b>${req.userName}</b> (ID: ${req.userId})</p>
+                            <p>📝 ${req.taskName} | Reward: ${req.price} Tk</p>
+                            <textarea id="reply-${req.reqId}" placeholder="Paste Gmail:Pass here..."></textarea>
+                            <div>
+                                <button class="btn btn-green" onclick="approveTask('${req.reqId}', '${req.userId}', ${req.price})">Approve & Send</button>
+                                <button class="btn btn-red" onclick="rejectReq('${req.reqId}', '${req.userId}')">Reject</button>
+                            </div>
+                        </div>`;
+                    }
+                    
+                    else if (req.type === 'Withdraw') {
+                        withdrawDiv.innerHTML += `
+                        <div class="req-card withdraw">
+                            <p>👤 <b>${req.userName}</b> (ID: ${req.userId})</p>
+                            <p>🏦 ${req.method} | 📱 ${req.number}</p>
+                            <p class="highlight">💰 Amount: ${req.amount} Tk</p>
+                            <div>
+                                <button class="btn btn-green" onclick="approveWithdraw('${req.reqId}', '${req.userId}', ${req.amount})">Mark Paid</button>
+                                <button class="btn btn-red" onclick="rejectReq('${req.reqId}', '${req.userId}')">Reject</button>
+                            </div>
+                        </div>`;
+                    }
+                }
+            });
+        });
+
+        function approveTask(reqId, userId, price) {
+            const reply = document.getElementById(`reply-${reqId}`).value;
+            if(!reply) return alert("Please enter Gmail details first!");
+
+            db.ref(`admin_requests/${reqId}`).update({ status: 'Completed' });
+            
+            db.ref(`users/${userId}/inbox/${reqId}`).update({ 
+                status: 'Success', 
+                replyData: reply 
+            });
+
+            db.ref(`users/${userId}/balance`).transaction((currentBal) => {
+                return (currentBal || 0) + price;
+            });
+
+            alert("Task Approved & Balance Added!");
+        }
+
+        function approveWithdraw(reqId, userId, amount) {
+            if(!confirm("Are you sure you paid this user?")) return;
+
+            db.ref(`admin_requests/${reqId}`).update({ status: 'Paid' });
+            db.ref(`users/${userId}/inbox/${reqId}`).update({ status: 'Paid' });
+
+            db.ref(`users/${userId}/balance`).transaction((currentBal) => {
+                return (currentBal || 0) - amount;
+            });
+
+            alert("Marked as Paid & Balance Deducted!");
+        }
+
+        function rejectReq(reqId, userId) {
+            if(!confirm("Reject this request?")) return;
+            db.ref(`admin_requests/${reqId}`).update({ status: 'Rejected' });
+            db.ref(`users/${userId}/inbox/${reqId}`).update({ status: 'Rejected' });
+        }
+
+        let selectedUserId = null;
+
+        function searchUser() {
+            const uid = document.getElementById('search-uid').value;
+            if(!uid) return alert("Enter User ID");
+
+            db.ref(`users/${uid}`).once('value', (snap) => {
+                if(snap.exists()) {
+                    const u = snap.val();
+                    document.getElementById('user-result').style.display = 'block';
+                    document.getElementById('res-name').innerText = u.name;
+                    document.getElementById('res-bal').innerText = (u.balance || 0).toFixed(2);
+                    selectedUserId = uid;
+                } else {
+                    alert("User not found!");
+                    document.getElementById('user-result').style.display = 'none';
+                }
+            });
+        }
+
+        function updateUserBalance() {
+            const amount = parseFloat(document.getElementById('new-bal-amount').value);
+            if(!amount || !selectedUserId) return alert("Invalid amount or user");
+
+            db.ref(`users/${selectedUserId}/balance`).transaction((current) => {
+                return (current || 0) + amount;
+            }, (error, committed, snapshot) => {
+                if(error) {
+                    alert('Update failed');
+                } else {
+                    document.getElementById('res-bal').innerText = snapshot.val().toFixed(2);
+                    alert("Balance Updated Successfully!");
+                    document.getElementById('new-bal-amount').value = '';
+                }
+            });
+        }
+
+    </script>
+</body>
+</html>
